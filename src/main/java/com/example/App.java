@@ -1,171 +1,313 @@
 package com.example;
 
 import org.flywaydb.core.Flyway;
-import java.io.IOException;
-import java.io.InputStream;
+
 import java.sql.*;
-import java.util.Properties;
+import java.time.LocalDate;
 
 public class App {
+    private static final String DB_URL = "jdbc:postgresql://localhost:5432/orders";
+    private static final String DB_USER = "postgres";
+    private static final String DB_PASSWORD = "QwAsZx_2025";
+
     public static void main(String[] args) {
-        Properties props = new Properties();
-        try (InputStream input = App.class.getClassLoader().getResourceAsStream("application.properties")) {
-            if (input == null) {
-                System.out.println("Извините, не удалось найти application.properties");
-                return;
+        // Запускаем миграции Flyway
+        Flyway flyway = Flyway.configure()
+                .dataSource(DB_URL, DB_USER, DB_PASSWORD)
+                .load();
+        flyway.migrate();
+
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
+            conn.setAutoCommit(false);  // Включаем транзакцию
+
+            try {
+                // 1. Вставка нового товара и покупателя
+                int productId = insertProduct(conn, "Смартфон", 30000.00, 20, "Электроника");
+                int customerId = insertCustomer(conn, "Алексей", "Петров", "alexey.petrov@example.com", "1234567890");
+
+                // 2. Создание заказа для покупателя
+                int orderId = createOrder(conn, productId, customerId, LocalDate.now(), 2, 1); // статус = 1 ("В обработке")
+
+                // 3. Чтение и вывод последних 5 заказов с JOIN на товары и покупателей
+                printLastFiveOrders(conn);
+
+                // 4. Обновление цены товара и количества на складе
+                updateProductPriceAndQuantity(conn, productId, 28000.00, 18);
+
+                // Дополнительно: 5 запросов на чтение
+                readQueries(conn);
+
+                // 3 запроса на обновление (включая выше)
+                updateQueries(conn, productId);
+
+                // 2 запроса на удаление
+                deleteQueries(conn, customerId, productId);
+
+                conn.commit();
+            } catch (Exception e) {
+                System.err.println("Ошибка во время транзакции: " + e.getMessage());
+                e.printStackTrace();
+                conn.rollback();
+                System.out.println("Транзакция отменена.");
             }
-            props.load(input);
-        } catch (IOException ex) {
-            ex.printStackTrace();
-            return;
-        }
-
-        String url = props.getProperty("db.url");
-        String user = props.getProperty("db.username");
-        String password = props.getProperty("db.password");
-        boolean flywayEnabled = Boolean.parseBoolean(props.getProperty("flyway.enabled"));
-
-        // Запускает промежуточные миграции, если они включены
-        if (flywayEnabled) {
-            Flyway flyway = Flyway.configure()
-                    .dataSource(url, user, password)
-                    .baselineOnMigrate(true)
-                    .load();
-            flyway.migrate();
-            System.out.println("Миграция Flyway успешно завершена! 🚀");
-        }
-
-        Connection conn = null;
-        try {
-            // Подключиться к базе данных
-            conn = DriverManager.getConnection(url, user, password);
-            conn.setAutoCommit(false); // Начать транзакцию
-
-            // 1. Ввод нового продукта и клиента
-            System.out.println("1. Внедрение нового продукта и клиента...");
-            String insertProductSQL = "INSERT INTO product (описание, стоимость, количество, категория) VALUES (?, ?, ?, ?) RETURNING id";
-            PreparedStatement psProduct = conn.prepareStatement(insertProductSQL);
-            psProduct.setString(1, "Смартфон");
-            psProduct.setBigDecimal(2, new java.math.BigDecimal("30000.00"));
-            psProduct.setInt(3, 5);
-            psProduct.setString(4, "Электроника");
-            ResultSet rsProduct = psProduct.executeQuery();
-            int productId = -1;
-            if (rsProduct.next()) {
-                productId = rsProduct.getInt(1);
-            }
-            psProduct.close();
-
-            String insertCustomerSQL = "INSERT INTO customer (имя, фамилия, телефон, email) VALUES (?, ?, ?, ?) RETURNING id";
-            PreparedStatement psCustomer = conn.prepareStatement(insertCustomerSQL);
-            psCustomer.setString(1, "Петр");
-            psCustomer.setString(2, "Петров");
-            psCustomer.setString(3, "+7-999-123-45-67");
-            psCustomer.setString(4, "petr@example.com");
-            ResultSet rsCustomer = psCustomer.executeQuery();
-            int customerId = -1;
-            if (rsCustomer.next()) {
-                customerId = rsCustomer.getInt(1);
-            }
-            psCustomer.close();
-
-            System.out.println("Вставленный продукт с ID: " + productId);
-            System.out.println("Введенный клиент с ID: " + customerId);
-
-            // Убедитесь, что статус заказа существует (укажите, если его нет).
-            System.out.println("\nОбеспечение статуса заказа 'В обработке' существует...");
-            String insertStatusSQL = "INSERT INTO order_status (\"имя статуса\") VALUES ('В обработке') ON CONFLICT (\"имя статуса\") DO NOTHING";
-            PreparedStatement psStatus = conn.prepareStatement(insertStatusSQL);
-            psStatus.executeUpdate();
-            psStatus.close();
-            System.out.println("Гарантированный статус заказа.");
-
-            // 2. Создать заказ для клиента
-            System.out.println("\n2. Создание заказа для клиента...");
-            String insertOrderSQL = "INSERT INTO \"order\" (product_id, customer_id, \"дата заказа\", количество, статус) VALUES (?, ?, CURRENT_DATE, ?, (SELECT id FROM order_status WHERE \"имя статуса\" = 'В обработке')) RETURNING id";
-            PreparedStatement psOrder = conn.prepareStatement(insertOrderSQL);
-            psOrder.setInt(1, productId);
-            psOrder.setInt(2, customerId);
-            psOrder.setInt(3, 1);
-            ResultSet rsOrder = psOrder.executeQuery();
-            int orderId = -1;
-            if (rsOrder.next()) {
-                orderId = rsOrder.getInt(1);
-            }
-            psOrder.close();
-
-            System.out.println("Созданный заказ с ID: " + orderId);
-
-            // 3. Прочитайте и распечатайте последние 5 заказов с помощью JOIN
-            System.out.println("\n3. Чтение последних 5 заказов с помощью JOIN...");
-            String selectOrdersSQL = "SELECT o.id, c.имя, c.фамилия, p.описание, o.\"дата заказа\", o.количество, os.\"имя статуса\" FROM \"order\" o JOIN customer c ON o.customer_id = c.id JOIN product p ON o.product_id = p.id JOIN order_status os ON o.статус = os.id ORDER BY o.\"дата заказа\" DESC LIMIT 5";
-            Statement stmt = conn.createStatement();
-            ResultSet rsOrders = stmt.executeQuery(selectOrdersSQL);
-            while (rsOrders.next()) {
-                System.out.println("Order ID: " + rsOrders.getInt("id") +
-                        ", Customer: " + rsOrders.getString("имя") + " " + rsOrders.getString("фамилия") +
-                        ", Product: " + rsOrders.getString("описание") +
-                        ", Date: " + rsOrders.getDate("дата заказа") +
-                        ", Quantity: " + rsOrders.getInt("количество") +
-                        ", Status: " + rsOrders.getString("имя статуса"));
-            }
-            rsOrders.close();
-            stmt.close();
-
-            // 4. Обновите цену и количество товара
-            System.out.println("\n4. Обновление цены и количества товара...");
-            String updateProductSQL = "UPDATE product SET стоимость = стоимость * 1.1, количество = количество - 1 WHERE id = ?";
-            PreparedStatement psUpdate = conn.prepareStatement(updateProductSQL);
-            psUpdate.setInt(1, productId);
-            int updatedRows = psUpdate.executeUpdate();
-            psUpdate.close();
-
-            System.out.println("Обновленный " + updatedRows + " продукт(ы).");
-
-            // 5. Удалить тестовые записи (те, которые мы вставили)
-            System.out.println("\n5. Удаление тестовых записей...");
-            String deleteOrderSQL = "DELETE FROM \"order\" WHERE id = ?";
-            PreparedStatement psDeleteOrder = conn.prepareStatement(deleteOrderSQL);
-            psDeleteOrder.setInt(1, orderId);
-            psDeleteOrder.executeUpdate();
-            psDeleteOrder.close();
-
-            String deleteProductSQL = "DELETE FROM product WHERE id = ?";
-            PreparedStatement psDeleteProduct = conn.prepareStatement(deleteProductSQL);
-            psDeleteProduct.setInt(1, productId);
-            psDeleteProduct.executeUpdate();
-            psDeleteProduct.close();
-
-            String deleteCustomerSQL = "DELETE FROM customer WHERE id = ?";
-            PreparedStatement psDeleteCustomer = conn.prepareStatement(deleteCustomerSQL);
-            psDeleteCustomer.setInt(1, customerId);
-            psDeleteCustomer.executeUpdate();
-            psDeleteCustomer.close();
-
-            System.out.println("Удаленные тестовые записи.");
-
-            // Фиксация транзакции
-            conn.commit();
-            System.out.println("\nТранзакция успешно совершена! ✅");
-
         } catch (SQLException e) {
-            System.out.println("Произошла ошибка: " + e.getMessage());
-            if (conn != null) {
-                try {
-                    conn.rollback();
-                    System.out.println("Откат транзакции. ❌");
-                } catch (SQLException ex) {
-                    System.out.println("Ошибка при откате: " + ex.getMessage());
-                }
+            e.printStackTrace();
+        }
+    }
+
+    // Вставка товара, возвращает ID
+    private static int insertProduct(Connection conn, String description, double price, int quantity, String category) throws SQLException {
+        String sql = "INSERT INTO product (описание, стоимость, количество, категория) VALUES (?, ?, ?, ?) RETURNING id";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, description);
+            ps.setDouble(2, price);
+            ps.setInt(3, quantity);
+            ps.setString(4, category);
+            ResultSet rs = ps.executeQuery();
+            rs.next();
+            int id = rs.getInt(1);
+            System.out.printf("Вставлен товар: ID=%d, описание='%s', цена=%.2f, количество=%d, категория='%s'%n",
+                    id, description, price, quantity, category);
+            return id;
+        }
+    }
+
+    // Вставка покупателя, возвращает ID
+    private static int insertCustomer(Connection conn, String firstName, String lastName, String email, String phone) throws SQLException {
+        String sql = "INSERT INTO customer (имя, фамилия, email, телефон) VALUES (?, ?, ?, ?) RETURNING id";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, firstName);
+            ps.setString(2, lastName);
+            ps.setString(3, email);
+            ps.setString(4, phone);
+            ResultSet rs = ps.executeQuery();
+            rs.next();
+            int id = rs.getInt(1);
+            System.out.printf("Вставлен покупатель: ID=%d, %s %s, email='%s', телефон='%s'%n",
+                    id, firstName, lastName, email, phone);
+            return id;
+        }
+    }
+
+    // Создание заказа, возвращает ID
+    private static int createOrder(Connection conn, int productId, int customerId, LocalDate orderDate, int quantity, int statusId) throws SQLException {
+        String sql = "INSERT INTO \"order\" (product_id, customer_id, \"дата заказа\", количество, статус) VALUES (?, ?, ?, ?, ?) RETURNING id";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            ps.setInt(2, customerId);
+            ps.setDate(3, Date.valueOf(orderDate));
+            ps.setInt(4, quantity);
+            ps.setInt(5, statusId);
+            ResultSet rs = ps.executeQuery();
+            rs.next();
+            int id = rs.getInt(1);
+            System.out.printf("Создан заказ: ID=%d, product_id=%d, customer_id=%d, дата=%s, количество=%d, статус=%d%n",
+                    id, productId, customerId, orderDate, quantity, statusId);
+            return id;
+        }
+    }
+
+    // Вывод последних 5 заказов с JOIN на товары и покупателей
+    private static void printLastFiveOrders(Connection conn) throws SQLException {
+        String sql = """
+                SELECT o.id, c.имя, c.фамилия, p.описание, o."дата заказа", o.количество, os."имя статуса"
+                FROM "order" o
+                JOIN customer c ON o.customer_id = c.id
+                JOIN product p ON o.product_id = p.id
+                JOIN order_status os ON o.статус = os.id
+                ORDER BY o."дата заказа" DESC
+                LIMIT 5
+                """;
+        System.out.println("\nПоследние 5 заказов:");
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                System.out.printf("Заказ ID=%d: Покупатель: %s %s, Товар: %s, Дата: %s, Количество: %d, Статус: %s%n",
+                        rs.getInt("id"),
+                        rs.getString("имя"),
+                        rs.getString("фамилия"),
+                        rs.getString("описание"),
+                        rs.getDate("дата заказа"),
+                        rs.getInt("количество"),
+                        rs.getString("имя статуса"));
             }
-        } finally {
-            if (conn != null) {
-                try {
-                    conn.close();
-                } catch (SQLException e) {
-                    System.out.println("Ошибка при закрытии соединения: " + e.getMessage());
-                }
+        }
+    }
+
+    // Обновление цены и количества товара
+    private static void updateProductPriceAndQuantity(Connection conn, int productId, double newPrice, int newQuantity) throws SQLException {
+        String sql = "UPDATE product SET стоимость = ?, количество = ? WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setDouble(1, newPrice);
+            ps.setInt(2, newQuantity);
+            ps.setInt(3, productId);
+            int updated = ps.executeUpdate();
+            System.out.printf("Обновлено товара ID=%d: новая цена=%.2f, новое количество=%d (обновлено строк: %d)%n",
+                    productId, newPrice, newQuantity, updated);
+        }
+    }
+
+    // Дополнительные 5 запросов на чтение
+    private static void readQueries(Connection conn) throws SQLException {
+        System.out.println("\nДополнительные запросы на чтение:");
+
+        // 1. Список всех заказов за последние 7 дней с именем покупателя и описанием товара
+        String sql1 = """
+                SELECT o.id, c.имя, c.фамилия, p.описание, o."дата заказа"
+                FROM "order" o
+                JOIN customer c ON o.customer_id = c.id
+                JOIN product p ON o.product_id = p.id
+                WHERE o."дата заказа" >= CURRENT_DATE - INTERVAL '7 days'
+                ORDER BY o."дата заказа" DESC
+                """;
+        System.out.println("Заказы за последние 7 дней:");
+        try (PreparedStatement ps = conn.prepareStatement(sql1);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                System.out.printf("Заказ ID=%d, Покупатель: %s %s, Товар: %s, Дата: %s%n",
+                        rs.getInt("id"),
+                        rs.getString("имя"),
+                        rs.getString("фамилия"),
+                        rs.getString("описание"),
+                        rs.getDate("дата заказа"));
             }
+        }
+
+        // 2. Топ-3 самых популярных товара (по суммарному количеству заказов)
+        String sql2 = """
+                SELECT p.описание, SUM(o.количество) AS total_ordered
+                FROM "order" o
+                JOIN product p ON o.product_id = p.id
+                GROUP BY p.описание
+                ORDER BY total_ordered DESC
+                LIMIT 3
+                """;
+        System.out.println("\nТоп-3 самых популярных товара:");
+        try (PreparedStatement ps = conn.prepareStatement(sql2);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                System.out.printf("Товар: %s, Заказано всего: %d%n",
+                        rs.getString("описание"),
+                        rs.getInt("total_ordered"));
+            }
+        }
+
+        // 3. Количество клиентов без заказов
+        String sql3 = """
+                SELECT COUNT(*) AS no_order_customers
+                FROM customer c
+                LEFT JOIN "order" o ON c.id = o.customer_id
+                WHERE o.id IS NULL
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql3);
+             ResultSet rs = ps.executeQuery()) {
+            rs.next();
+            System.out.printf("\nКлиентов без заказов: %d%n", rs.getInt("no_order_customers"));
+        }
+
+        // 4. Средняя стоимость товаров по категориям
+        String sql4 = """
+                SELECT категория, AVG(стоимость) AS avg_price
+                FROM product
+                GROUP BY категория
+                """;
+        System.out.println("\nСредняя стоимость товаров по категориям:");
+        try (PreparedStatement ps = conn.prepareStatement(sql4);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                System.out.printf("Категория: %s, Средняя цена: %.2f%n",
+                        rs.getString("категория"),
+                        rs.getDouble("avg_price"));
+            }
+        }
+
+        // 5. Заказы с фильтрацией по статусу "В обработке"
+        String sql5 = """
+                SELECT o.id, c.имя, c.фамилия, p.описание, o."дата заказа"
+                FROM "order" o
+                JOIN customer c ON o.customer_id = c.id
+                JOIN product p ON o.product_id = p.id
+                JOIN order_status os ON o.статус = os.id
+                WHERE os."имя статуса" = 'В обработке'
+                ORDER BY o."дата заказа" DESC
+                """;
+        System.out.println("\nЗаказы со статусом 'В обработке':");
+        try (PreparedStatement ps = conn.prepareStatement(sql5);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                System.out.printf("Заказ ID=%d, Покупатель: %s %s, Товар: %s, Дата: %s%n",
+                        rs.getInt("id"),
+                        rs.getString("имя"),
+                        rs.getString("фамилия"),
+                        rs.getString("описание"),
+                        rs.getDate("дата заказа"));
+            }
+        }
+    }
+
+    // 3 запроса на обновление (обновление статуса заказа, обновление телефона клиента, обновление цены товара)
+    private static void updateQueries(Connection conn, int productId) throws SQLException {
+        System.out.println("\nЗапросы на обновление:");
+
+        // 1. Обновление статуса заказа (например, последний заказ в статус "Отправлен" (id=2))
+        String sql1 = "UPDATE \"order\" SET статус = 2 WHERE id = (SELECT MAX(id) FROM \"order\")";
+        try (PreparedStatement ps = conn.prepareStatement(sql1)) {
+            int updated = ps.executeUpdate();
+            System.out.printf("Обновлен статус последнего заказа на 'Отправлен' (обновлено строк: %d)%n", updated);
+        }
+
+        // 2. Обновление телефона клиента
+        String sql2 = "UPDATE customer SET телефон = ? WHERE id = (SELECT MAX(id) FROM customer)";
+        try (PreparedStatement ps = conn.prepareStatement(sql2)) {
+            ps.setString(1, "+7-999-888-7777");
+            int updated = ps.executeUpdate();
+            System.out.printf("Обновлен телефон последнего клиента (обновлено строк: %d)%n", updated);
+        }
+
+        // 3. Обновление цены товара (уже выполнено выше, но повторим для демонстрации)
+        updateProductPriceAndQuantity(conn, productId, 27000.00, 15);
+    }
+
+    // 2 запроса на удаление (удаление клиентов без заказов, удаление тестовых записей)
+    private static void deleteQueries(Connection conn, int customerId, int productId) throws SQLException {
+        System.out.println("\nЗапросы на удаление:");
+
+        // 1. Удаление клиентов без заказов
+        String sql1 = """
+                DELETE FROM customer c
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM "order" o WHERE o.customer_id = c.id
+                )
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql1)) {
+            int deleted = ps.executeUpdate();
+            System.out.printf("Удалено клиентов без заказов: %d%n", deleted);
+        }
+
+        // 2. Удаление тестовых записей: заказ, клиент, товар (созданные в этом запуске)
+        // Удаляем заказ
+        String sqlDeleteOrder = "DELETE FROM \"order\" WHERE customer_id = ? AND product_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sqlDeleteOrder)) {
+            ps.setInt(1, customerId);
+            ps.setInt(2, productId);
+            int deleted = ps.executeUpdate();
+            System.out.printf("Удалено заказов тестовых: %d%n", deleted);
+        }
+
+        // Удаляем клиента
+        String sqlDeleteCustomer = "DELETE FROM customer WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sqlDeleteCustomer)) {
+            ps.setInt(1, customerId);
+            int deleted = ps.executeUpdate();
+            System.out.printf("Удалено клиентов тестовых: %d%n", deleted);
+        }
+
+        // Удаляем товар
+        String sqlDeleteProduct = "DELETE FROM product WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sqlDeleteProduct)) {
+            ps.setInt(1, productId);
+            int deleted = ps.executeUpdate();
+            System.out.printf("Удалено товаров тестовых: %d%n", deleted);
         }
     }
 }
