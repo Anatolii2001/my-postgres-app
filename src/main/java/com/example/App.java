@@ -27,11 +27,14 @@ public class App {
 
             try {
                 // 1. Вставка нового товара и покупателя
-                int productId = insertProduct(conn, "Смартфон", 30000.00, 20, "Электроника");
-                int customerId = insertCustomer(conn, "Алексей", "Петров", "alexey.petrov@example.com", "1234567890");
+                int productId = insertProduct(conn, "Смартфон", 30000.00,
+                        20, "Электроника");
+                int customerId = insertCustomer(conn, "Алексей", "Петров",
+                        "alexey.petrov@example.com", "1234567890");
 
                 // 2. Создание заказа для покупателя
-                int orderId = createOrder(conn, productId, customerId, LocalDate.now(), 2, 1); // статус = 1 ("В обработке")
+                int orderId = createOrder(conn, productId, customerId,
+                        LocalDate.now(), 2, 1); // статус = 1 ("В обработке")
 
                 // 3. Чтение и вывод последних 5 заказов с JOIN на товары и покупателей
                 printLastFiveOrders(conn);
@@ -76,8 +79,10 @@ public class App {
     }
 
     // Вставка товара, возвращает ID
-    private static int insertProduct(Connection conn, String description, double price, int quantity, String category) throws SQLException {
-        String sql = "INSERT INTO product (описание, стоимость, количество, категория) VALUES (?, ?, ?, ?) RETURNING id";
+    private static int insertProduct(Connection conn, String description, double price,
+                                     int quantity, String category) throws SQLException {
+        String sql = "INSERT INTO product (описание, стоимость, количество, категория) " +
+                "VALUES (?, ?, ?, ?) RETURNING id";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, description);
             ps.setDouble(2, price);
@@ -86,14 +91,16 @@ public class App {
             ResultSet rs = ps.executeQuery();
             rs.next();
             int id = rs.getInt(1);
-            System.out.printf("Вставлен товар: ID=%d, описание='%s', цена=%.2f, количество=%d, категория='%s'%n",
+            System.out.printf("Вставлен товар: ID=%d, описание='%s', цена=%.2f, " +
+                            "количество=%d, категория='%s'%n",
                     id, description, price, quantity, category);
             return id;
         }
     }
 
     // Вставка покупателя, возвращает ID
-    private static int insertCustomer(Connection conn, String firstName, String lastName, String email, String phone) throws SQLException {
+    private static int insertCustomer(Connection conn, String firstName,
+                                      String lastName, String email, String phone) throws SQLException {
         String sql = "INSERT INTO customer (имя, фамилия, email, телефон) VALUES (?, ?, ?, ?) RETURNING id";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, firstName);
@@ -110,8 +117,10 @@ public class App {
     }
 
     // Создание заказа, возвращает ID
-    private static int createOrder(Connection conn, int productId, int customerId, LocalDate orderDate, int quantity, int statusId) throws SQLException {
-        String sql = "INSERT INTO \"order\" (product_id, customer_id, \"дата заказа\", количество, статус) VALUES (?, ?, ?, ?, ?) RETURNING id";
+    private static int createOrder(Connection conn, int productId, int customerId,
+                                   LocalDate orderDate, int quantity, int statusId) throws SQLException {
+        String sql = "INSERT INTO \"order\" (product_id, customer_id, \"дата заказа\", " +
+                "количество, статус) VALUES (?, ?, ?, ?, ?) RETURNING id";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, productId);
             ps.setInt(2, customerId);
@@ -121,7 +130,8 @@ public class App {
             ResultSet rs = ps.executeQuery();
             rs.next();
             int id = rs.getInt(1);
-            System.out.printf("Создан заказ: ID=%d, product_id=%d, customer_id=%d, дата=%s, количество=%d, статус=%d%n",
+            System.out.printf("Создан заказ: ID=%d, product_id=%d, " +
+                            "customer_id=%d, дата=%s, количество=%d, статус=%d%n",
                     id, productId, customerId, orderDate, quantity, statusId);
             return id;
         }
@@ -142,7 +152,8 @@ public class App {
         try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                System.out.printf("Заказ ID=%d: Покупатель: %s %s, Товар: %s, Дата: %s, Количество: %d, Статус: %s%n",
+                System.out.printf("Заказ ID=%d: Покупатель: %s %s, Товар: %s, " +
+                                "Дата: %s, Количество: %d, Статус: %s%n",
                         rs.getInt("id"),
                         rs.getString("имя"),
                         rs.getString("фамилия"),
@@ -155,14 +166,16 @@ public class App {
     }
 
     // Обновление цены и количества товара
-    private static void updateProductPriceAndQuantity(Connection conn, int productId, double newPrice, int newQuantity) throws SQLException {
+    private static void updateProductPriceAndQuantity(Connection conn, int productId, double newPrice,
+                                                      int newQuantity) throws SQLException {
         String sql = "UPDATE product SET стоимость = ?, количество = ? WHERE id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setDouble(1, newPrice);
             ps.setInt(2, newQuantity);
             ps.setInt(3, productId);
             int updated = ps.executeUpdate();
-            System.out.printf("Обновлено товара ID=%d: новая цена=%.2f, новое количество=%d (обновлено строк: %d)%n",
+            System.out.printf("Обновлено товара ID=%d: новая цена=%.2f, " +
+                            "новое количество=%d (обновлено строк: %d)%n",
                     productId, newPrice, newQuantity, updated);
         }
     }
@@ -273,7 +286,8 @@ public class App {
         String sql1 = "UPDATE \"order\" SET статус = 2 WHERE id = (SELECT MAX(id) FROM \"order\")";
         try (PreparedStatement ps = conn.prepareStatement(sql1)) {
             int updated = ps.executeUpdate();
-            System.out.printf("Обновлен статус последнего заказа на 'Отправлен' (обновлено строк: %d)%n", updated);
+            System.out.printf("Обновлен статус последнего заказа на 'Отправлен' " +
+                    "(обновлено строк: %d)%n", updated);
         }
 
         // 2. Обновление телефона клиента
@@ -331,4 +345,3 @@ public class App {
         }
     }
 }
-
