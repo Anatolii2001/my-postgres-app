@@ -39,4 +39,3 @@ CREATE INDEX idx_order_product_id ON "order" USING BTREE (product_id);
 CREATE INDEX idx_order_customer_id ON "order" USING BTREE (customer_id);
 CREATE INDEX idx_order_status ON "order" USING BTREE (статус);
 CREATE INDEX idx_order_date ON "order" USING BTREE ("дата заказа");
-
