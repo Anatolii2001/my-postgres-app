@@ -87,3 +87,4 @@ WHERE NOT EXISTS (
 DELETE FROM "order" o
 WHERE o.статус = (SELECT id FROM order_status WHERE "имя статуса" = 'Отменен')
   AND o."дата заказа" < CURRENT_DATE - INTERVAL '30 days';
+
