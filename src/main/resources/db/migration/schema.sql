@@ -1,4 +1,4 @@
--- V1__Create_schema.sql
+-- schema.sql
 -- Схема базы данных
 
 CREATE TABLE public.customer (

@@ -2,15 +2,20 @@ package com.example;
 
 import org.flywaydb.core.Flyway;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.sql.*;
 import java.time.LocalDate;
+import java.util.Properties;
 
 public class App {
-    private static final String DB_URL = "jdbc:postgresql://localhost:5432/orders";
-    private static final String DB_USER = "postgres";
-    private static final String DB_PASSWORD = "QwAsZx_2025";
+    private static String DB_URL;
+    private static String DB_USER;
+    private static String DB_PASSWORD;
 
     public static void main(String[] args) {
+        loadProperties();
+
         // Запускаем миграции Flyway
         Flyway flyway = Flyway.configure()
                 .dataSource(DB_URL, DB_USER, DB_PASSWORD)
@@ -52,6 +57,21 @@ public class App {
             }
         } catch (SQLException e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void loadProperties() {
+        Properties props = new Properties();
+        try (InputStream input = App.class.getClassLoader().getResourceAsStream("application.properties")) {
+            if (input == null) {
+                throw new RuntimeException("Не найден файл application.properties в classpath");
+            }
+            props.load(input);
+            DB_URL = props.getProperty("db.url");
+            DB_USER = props.getProperty("db.username");
+            DB_PASSWORD = props.getProperty("db.password");
+        } catch (IOException e) {
+            throw new RuntimeException("Ошибка при загрузке application.properties", e);
         }
     }
 
@@ -173,7 +193,7 @@ public class App {
             }
         }
 
-        // 2. Топ-3 самых популярных товара (по суммарному количеству заказов)
+        // 2. Топ-3 самых популярных товаров (по суммарному количеству заказов)
         String sql2 = """
                 SELECT p.описание, SUM(o.количество) AS total_ordered
                 FROM "order" o
